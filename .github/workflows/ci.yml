@@ -1,0 +1,97 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Run weekly to catch any upstream issues
+    - cron: "0 0 * * 0"
+
+jobs:
+  check:
+    name: Check flake and formatting
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      - uses: DeterminateSystems/flakehub-cache-action@main
+
+      - name: Check flake
+        run: |
+          nix flake check --all-systems --show-trace
+
+      - name: Check formatting
+        run: |
+          nix fmt -- --fail-on-change
+
+      - name: Verify flake outputs
+        run: |
+          nix flake show
+
+  build:
+    name: Build packages
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python: [py310, py311, py312, py313]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      - uses: DeterminateSystems/flakehub-cache-action@main
+
+      - name: Build Python ${{ matrix.python }} package
+        run: |
+          nix build -L .#pypostal-${{ matrix.python }}
+
+      - name: Test import
+        run: |
+          nix develop .#${{ matrix.python }} -c python -c "import postal.parser; print('✓ Import successful for ${{ matrix.python }}')"
+
+      - name: Run functionality test
+        run: |
+          nix develop .#${{ matrix.python }} -c python -c "
+          from postal.parser import parse_address
+          result = parse_address('123 Main St, San Francisco, CA 94102')
+          assert len(result) > 0, 'Parser returned no results'
+          print('✓ Parser test passed for ${{ matrix.python }}')
+          "
+
+  integration:
+    name: Integration tests
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      - uses: DeterminateSystems/flakehub-cache-action@main
+
+      - name: Test demo application
+        run: |
+          nix run .#demo -- "123 Main St, San Francisco, CA 94102"
+
+  release:
+    name: Release check
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    needs: [check, build, integration]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      - name: Verify all outputs are buildable
+        run: |
+          nix flake check --all-systems
+          echo "✅ All checks passed - ready for release"

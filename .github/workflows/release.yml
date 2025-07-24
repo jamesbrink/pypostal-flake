@@ -1,0 +1,67 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      - uses: DeterminateSystems/flakehub-cache-action@main
+
+      - name: Verify all builds
+        run: |
+          echo "🔍 Verifying all package builds..."
+          for pkg in pypostal-py310 pypostal-py311 pypostal-py312 pypostal-py313; do
+            echo "Building $pkg..."
+            nix build .#$pkg
+          done
+          echo "✅ All packages built successfully"
+
+      - name: Generate release notes
+        id: release_notes
+        run: |
+          cat > release-notes.md << 'EOF'
+          ## pypostal-flake ${{ github.ref_name }}
+
+          ### Installation
+
+          ```bash
+          # Using nix profile
+          nix profile add github:jamesbrink/pypostal-flake/${{ github.ref_name }}#pypostal
+
+          # In a flake
+          pypostal.url = "github:jamesbrink/pypostal-flake/${{ github.ref_name }}";
+          ```
+
+          ### Supported Python Versions
+          - Python 3.10
+          - Python 3.11
+          - Python 3.12
+          - Python 3.13
+
+          ### What's Changed
+          See the [full changelog](https://github.com/jamesbrink/pypostal-flake/compare/$(git describe --tags --abbrev=0 HEAD^)...${{ github.ref_name }})
+          EOF
+
+          echo "notes<<EOF" >> $GITHUB_OUTPUT
+          cat release-notes.md >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          body: ${{ steps.release_notes.outputs.notes }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true

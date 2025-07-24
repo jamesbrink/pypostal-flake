@@ -1,0 +1,92 @@
+name: Check Upstream Updates
+
+on:
+  schedule:
+    # Run daily at 3 AM UTC
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+  check-pypostal:
+    name: Check for pypostal updates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get current version
+        id: current
+        run: |
+          version=$(grep 'version = ' pkgs/pypostal.nix | sed 's/.*version = "\(.*\)";/\1/')
+          echo "version=$version" >> $GITHUB_OUTPUT
+
+      - name: Check PyPI for latest version
+        id: latest
+        run: |
+          latest=$(curl -s https://pypi.org/pypi/postal/json | jq -r .info.version)
+          echo "version=$latest" >> $GITHUB_OUTPUT
+
+      - name: Compare versions
+        id: compare
+        run: |
+          current="${{ steps.current.outputs.version }}"
+          latest="${{ steps.latest.outputs.version }}"
+
+          if [ "$current" != "$latest" ]; then
+            echo "needs_update=true" >> $GITHUB_OUTPUT
+            echo "📦 New pypostal version available: $latest (current: $current)"
+          else
+            echo "needs_update=false" >> $GITHUB_OUTPUT
+            echo "✅ pypostal is up to date: $current"
+          fi
+
+      - name: Check for existing issue
+        if: steps.compare.outputs.needs_update == 'true'
+        id: existing_issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              labels: 'upstream-update',
+              state: 'open'
+            });
+
+            const title = `Update pypostal to ${{ steps.latest.outputs.version }}`;
+            const existing = issues.data.find(issue => issue.title === title);
+
+            return existing ? existing.number : null;
+
+      - name: Create or update issue
+        if: steps.compare.outputs.needs_update == 'true' && steps.existing_issue.outputs.result == 'null'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Update pypostal to ${{ steps.latest.outputs.version }}`,
+              labels: ['upstream-update', 'enhancement'],
+              body: `## Upstream Update Available
+              
+              A new version of pypostal has been released on PyPI.
+              
+              **Current version:** ${{ steps.current.outputs.version }}
+              **Latest version:** ${{ steps.latest.outputs.version }}
+              
+              ### Update Instructions
+              
+              1. Update the version in \`pkgs/pypostal.nix\`
+              2. Update the sha256 hash
+              3. Run \`nix flake check --all-systems\` to verify all tests pass
+              4. Create a PR with the changes
+              
+              ### Resources
+              - [PyPI page](https://pypi.org/project/postal/)
+              - [GitHub releases](https://github.com/openvenues/pypostal/releases)
+              
+              *This issue was created automatically by the check-upstream workflow.*`
+            });
