@@ -81,6 +81,21 @@ jobs:
         run: |
           nix run .#demo -- "123 Main St, San Francisco, CA 94102"
 
+      - name: Test overlay integration
+        run: |
+          # Test that the overlay works for packages in an external flake
+          cd examples/overlay-example
+          nix build .#address-parser
+          export LIBPOSTAL_DATA_DIR="$(nix eval --raw .#packages.x86_64-linux.python-env.pkgs.libpostalWithData.outPath 2>/dev/null || echo /nix/store/*-libpostal-*/)/share/libpostal"
+          ./result/bin/address-parser "123 Main St" | grep -q "house_number"
+          echo "✓ Overlay package integration test passed"
+
+      - name: Test direct package integration
+        run: |
+          # Test direct package reference method
+          cd examples/direct-package-example
+          nix develop -c python -c "from postal.parser import parse_address; print('✓ Direct package integration test passed')"
+
   release:
     name: Release check
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'

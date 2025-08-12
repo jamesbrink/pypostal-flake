@@ -116,32 +116,40 @@ Add to your Home Manager configuration:
 
 ## Usage in Your Project
 
-### As a flake input
+There are two main ways to use pypostal in your Nix project:
 
-Add to your `flake.nix`:
+### Method 1: Direct Package Reference (Recommended)
+
+This method gives you direct control and works reliably for all use cases including development shells:
 
 ```nix
 {
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    pypostal.url = "github:jamesbrink/pypostal-flake";
+    pypostal-flake.url = "github:jamesbrink/pypostal-flake";
   };
 
-  outputs = { self, nixpkgs, pypostal }:
+  outputs = { self, nixpkgs, pypostal-flake }:
     let
       system = "x86_64-linux"; # or your system
-      pkgs = import nixpkgs {
-        inherit system;
-        overlays = [ pypostal.overlays.default ];
-      };
+      pkgs = import nixpkgs { inherit system; };
+      
+      # Get the specific pypostal package for your Python version
+      pypostal = pypostal-flake.packages.${system}.pypostal-py312;
+      
+      pythonEnv = pkgs.python312.withPackages (ps: [
+        # Add pypostal directly (not from ps)
+        pypostal
+        # your other Python packages from ps
+        ps.requests
+        ps.numpy
+      ]);
     in
     {
       devShells.${system}.default = pkgs.mkShell {
-        buildInputs = with pkgs; [
-          (python312.withPackages (ps: with ps; [
-            pypostal
-            # your other Python packages
-          ]))
+        buildInputs = [
+          pythonEnv
+          pkgs.libpostalWithData
         ];
         
         shellHook = ''
@@ -152,25 +160,84 @@ Add to your `flake.nix`:
 }
 ```
 
-### Using specific Python versions
+### Method 2: Using the Overlay
+
+**Note:** The overlay method has limitations with devShells when used from external flakes. It works best for building packages.
+
+The overlay adds `pypostal` to all Python package sets:
 
 ```nix
-# In your flake outputs
+{
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    pypostal-flake.url = "github:jamesbrink/pypostal-flake";
+  };
+
+  outputs = { self, nixpkgs, pypostal-flake }:
+    let
+      system = "x86_64-linux"; # or your system
+      pkgs = import nixpkgs {
+        inherit system;
+        overlays = [ pypostal-flake.overlays.default ];
+      };
+    in
+    {
+      # Works for packages but not reliably for devShells
+      packages.${system} = {
+        my-app = pkgs.writeScriptBin "my-app" ''
+          #!${pkgs.python312.withPackages (ps: [ ps.pypostal ])}/bin/python
+          from postal.parser import parse_address
+          # your application code here
+        '';
+        
+        # Python environment package
+        python-env = pkgs.python312.withPackages (ps: [ ps.pypostal ]);
+      };
+    };
+}
+```
+
+### Package Naming
+
+The flake provides the following package outputs:
+
+- `pypostal` or `default` - Default package (Python 3.12)
+- `pypostal-py310` - Python 3.10 version
+- `pypostal-py311` - Python 3.11 version  
+- `pypostal-py312` - Python 3.12 version
+- `pypostal-py313` - Python 3.13 version
+
+### Using Multiple Python Versions
+
+With direct package references:
+
+```nix
+packages = {
+  myapp-py310 = pkgs.python310.withPackages (ps: [
+    pypostal-flake.packages.${system}.pypostal-py310
+  ]);
+  myapp-py311 = pkgs.python311.withPackages (ps: [
+    pypostal-flake.packages.${system}.pypostal-py311
+  ]);
+  myapp-py312 = pkgs.python312.withPackages (ps: [
+    pypostal-flake.packages.${system}.pypostal-py312
+  ]);
+  myapp-py313 = pkgs.python313.withPackages (ps: [
+    pypostal-flake.packages.${system}.pypostal-py313
+  ]);
+};
+```
+
+With the overlay (for packages only, not devShells):
+
+```nix
+# After applying the overlay to pkgs
 packages = {
   myapp-py310 = pkgs.python310.withPackages (ps: [ ps.pypostal ]);
   myapp-py311 = pkgs.python311.withPackages (ps: [ ps.pypostal ]);
   myapp-py312 = pkgs.python312.withPackages (ps: [ ps.pypostal ]);
   myapp-py313 = pkgs.python313.withPackages (ps: [ ps.pypostal ]);
 };
-```
-
-### Direct package reference
-
-```nix
-# Use the pre-built packages directly
-buildInputs = [ 
-  pypostal.packages.${system}.pypostal-py312  # or py310, py311, py313
-];
 ```
 
 ## Environment Variables
@@ -259,12 +326,30 @@ python313.withPackages (ps: [ ps.pypostal ])
 
 ## Troubleshooting
 
+### "No module named 'postal'" when using the overlay
+
+The overlay method has limitations when used from external flakes for devShells. If you encounter this error:
+
+1. **Use the direct package reference method instead** (Method 1) for development shells
+2. The overlay works for building packages but not reliably for devShells in external flakes
+3. This is a known Nix limitation with how overlays compose across flake boundaries
+
 ### Import Error: "Could not find libpostal"
 
-Ensure `LIBPOSTAL_DATA_DIR` is set correctly:
+This error means the libpostal data directory is not set. Ensure `LIBPOSTAL_DATA_DIR` is set correctly:
 
 ```bash
 export LIBPOSTAL_DATA_DIR="${pkgs.libpostalWithData}/share/libpostal"
+```
+
+Also make sure `libpostalWithData` is included in your `buildInputs`.
+
+### Finding available package versions
+
+To see all available pypostal packages:
+
+```bash
+nix flake show github:jamesbrink/pypostal-flake
 ```
 
 ### Building from source fails
@@ -274,6 +359,10 @@ Make sure you have the required build dependencies:
 ```nix
 buildInputs = [ pkg-config libpostalWithData ];
 ```
+
+### Overlay not working in your flake
+
+If the overlay doesn't work for devShells, use the direct package reference method (Method 1). The overlay method is best suited for building packages, not development shells.
 
 ## License
 
