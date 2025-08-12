@@ -86,7 +86,8 @@ jobs:
           # Test that the overlay works for packages in an external flake
           cd examples/overlay-example
           nix build .#address-parser
-          export LIBPOSTAL_DATA_DIR="$(nix eval --raw .#packages.x86_64-linux.python-env.pkgs.libpostalWithData.outPath 2>/dev/null || echo /nix/store/*-libpostal-*/)/share/libpostal"
+          SYSTEM=$(nix eval --impure --raw --expr 'builtins.currentSystem')
+          export LIBPOSTAL_DATA_DIR="$(nix eval --raw .#packages.$SYSTEM.python-env.pkgs.libpostalWithData.outPath 2>/dev/null || echo /nix/store/*-libpostal-*/)/share/libpostal"
           ./result/bin/address-parser "123 Main St" | grep -q "house_number"
           echo "✓ Overlay package integration test passed"
 

@@ -74,7 +74,9 @@
           # Python 3.10 environment
           py310-env = pkgs.python310.withPackages (ps: [
             pypostal-flake.packages.${system}.pypostal-py310
-            # ipython has compatibility issues with Python 3.10
+            # Note: ipython is not included here due to compatibility issues
+            # with Python 3.10 in the current nixpkgs version. If you need
+            # an interactive REPL, use the standard python interpreter.
           ]);
 
           # Python 3.11 environment

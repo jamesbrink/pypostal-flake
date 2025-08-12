@@ -327,48 +327,33 @@
               '';
 
           # Test that the overlay works correctly when used in external flakes
-          overlay-test =
-            pkgs.runCommand "overlay-test"
-              {
-                buildInputs = [ pkgs.nix ];
-              }
-              ''
-                # Create a test flake that uses our overlay
-                mkdir -p test-flake
-                cat > test-flake/flake.nix << 'EOF'
-                {
-                  inputs.nixpkgs.url = "path:${nixpkgs}";
-                  inputs.pypostal.url = "path:${self}";
-                  
-                  outputs = { self, nixpkgs, pypostal }:
-                    let
-                      system = "${system}";
-                      pkgs = import nixpkgs {
-                        inherit system;
-                        overlays = [ pypostal.overlays.default ];
-                      };
-                    in {
-                      packages.${system}.test = pkgs.python312.withPackages (ps: [ ps.pypostal ]);
-                    };
-                }
-                EOF
+          overlay-test = pkgs.runCommand "overlay-test" { } ''
+            # Test that the overlay properly adds pypostal to python package sets
+            # We check that pypostal is available in the python packages with the overlay applied
 
-                # Test that the overlay properly adds pypostal to python package sets
-                export NIX_CONFIG="experimental-features = nix-command flakes"
-                cd test-flake
+            # Set up the required environment variable
+            export LIBPOSTAL_DATA_DIR="${pkgs.libpostalWithData}/share/libpostal"
 
-                # Build the test package using the overlay
-                nix build .#test --no-link --print-out-paths > build-result
+            # First verify that pypostal is available in the package set with dependencies
+            ${
+              pkgs.python312.withPackages (ps: [ ps.pypostal ])
+            }/bin/python -c "import postal.parser; import postal.expand; print('✓ pypostal imported successfully from overlay')"
 
-                # Verify the build succeeded and package exists
-                if [ -s build-result ]; then
-                  echo "Overlay test passed: pypostal successfully added to python package set"
-                  touch $out
-                else
-                  echo "Overlay test failed: Could not build python with pypostal from overlay"
-                  exit 1
-                fi
-              '';
+            # Also verify that the package metadata is accessible
+            if [ -d "${pkgs.python312.pkgs.pypostal}" ]; then
+              echo "✓ pypostal package exists at ${pkgs.python312.pkgs.pypostal}"
+            else
+              echo "✗ pypostal package not found"
+              exit 1
+            fi
+
+            # Test creating a python environment with pypostal from the overlay
+            TEST_PYTHON="${pkgs.python312.withPackages (ps: [ ps.pypostal ])}"
+            "$TEST_PYTHON/bin/python" -c "import postal.parser; import postal.expand; print('✓ pypostal works in python environment created from overlay')"
+
+            echo "Overlay test passed: pypostal successfully added to python package set"
+            touch $out
+          '';
 
           # Add treefmt check
           formatting = treefmtEval.config.build.check self;
