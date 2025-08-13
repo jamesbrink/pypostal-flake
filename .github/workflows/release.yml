@@ -28,31 +28,99 @@ jobs:
           done
           echo "✅ All packages built successfully"
 
-      - name: Generate release notes
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Generate release notes from CHANGELOG
         id: release_notes
         run: |
-          cat > release-notes.md << 'EOF'
-          ## pypostal-flake ${{ github.ref_name }}
+          # Extract the section for this version from CHANGELOG.md
+          if [ -f CHANGELOG.md ]; then
+            # Get content between this version and the next version header
+            awk "/^## \[${{ steps.version.outputs.version }}\]/{flag=1; next} /^## \[/{flag=0} flag" CHANGELOG.md > version-notes.md
+            
+            # If we found version-specific notes, use them
+            if [ -s version-notes.md ]; then
+              {
+                echo "## pypostal-flake ${{ steps.version.outputs.version }}"
+                echo ""
+                cat version-notes.md
+                echo ""
+                echo "### 📦 Installation"
+                echo ""
+                echo '```bash'
+                echo "# Using nix profile"
+                echo "nix profile install github:jamesbrink/pypostal-flake#pypostal"
+                echo ""
+                echo "# In a flake"
+                echo 'pypostal.url = "github:jamesbrink/pypostal-flake/${{ steps.version.outputs.version }}";'
+                echo '```'
+                echo ""
+                echo "### 🐍 Supported Python Versions"
+                echo "- Python 3.10"
+                echo "- Python 3.11"
+                echo "- Python 3.12"
+                echo "- Python 3.13"
+                echo ""
+                echo "### 📝 Documentation"
+                echo "See the [README](https://github.com/jamesbrink/pypostal-flake/blob/${{ steps.version.outputs.version }}/README.md) for complete usage instructions."
+                echo ""
+                # Add link to previous version if it exists
+                PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+                if [ -n "$PREV_TAG" ]; then
+                  echo "**Full Changelog**: https://github.com/jamesbrink/pypostal-flake/compare/${PREV_TAG}...${{ steps.version.outputs.version }}"
+                else
+                  echo "**Full Changelog**: https://github.com/jamesbrink/pypostal-flake/commits/${{ steps.version.outputs.version }}"
+                fi
+              } > release-notes.md
+            else
+              # Fallback to basic template if version not found in CHANGELOG
+              cat > release-notes.md << 'EOF'
+          ## pypostal-flake ${{ steps.version.outputs.version }}
 
-          ### Installation
+          ### 📦 Installation
 
           ```bash
           # Using nix profile
-          nix profile add github:jamesbrink/pypostal-flake/${{ github.ref_name }}#pypostal
+          nix profile install github:jamesbrink/pypostal-flake#pypostal
 
           # In a flake
-          pypostal.url = "github:jamesbrink/pypostal-flake/${{ github.ref_name }}";
+          pypostal.url = "github:jamesbrink/pypostal-flake/${{ steps.version.outputs.version }}";
           ```
 
-          ### Supported Python Versions
+          ### 🐍 Supported Python Versions
           - Python 3.10
           - Python 3.11
           - Python 3.12
           - Python 3.13
 
-          ### What's Changed
-          See the [full changelog](https://github.com/jamesbrink/pypostal-flake/compare/$(git describe --tags --abbrev=0 HEAD^)...${{ github.ref_name }})
+          ### 📝 Documentation
+          See the [README](https://github.com/jamesbrink/pypostal-flake/blob/${{ steps.version.outputs.version }}/README.md) for complete usage instructions.
           EOF
+            fi
+          else
+            # No CHANGELOG.md found, use basic template
+            cat > release-notes.md << 'EOF'
+          ## pypostal-flake ${{ steps.version.outputs.version }}
+
+          ### 📦 Installation
+
+          ```bash
+          # Using nix profile
+          nix profile install github:jamesbrink/pypostal-flake#pypostal
+
+          # In a flake
+          pypostal.url = "github:jamesbrink/pypostal-flake/${{ steps.version.outputs.version }}";
+          ```
+
+          ### 🐍 Supported Python Versions
+          - Python 3.10
+          - Python 3.11
+          - Python 3.12
+          - Python 3.13
+          EOF
+          fi
 
           echo "notes<<EOF" >> $GITHUB_OUTPUT
           cat release-notes.md >> $GITHUB_OUTPUT
@@ -64,4 +132,4 @@ jobs:
           body: ${{ steps.release_notes.outputs.notes }}
           draft: false
           prerelease: false
-          generate_release_notes: true
+          generate_release_notes: false
