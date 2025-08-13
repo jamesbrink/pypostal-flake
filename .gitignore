@@ -51,3 +51,5 @@ htmlcov/
 *.log
 .env
 .env.local
+.envrc
+.claude/settings.local.json

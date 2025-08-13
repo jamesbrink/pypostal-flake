@@ -4,7 +4,7 @@
   buildPythonPackage,
   fetchPypi,
   pkg-config,
-  libpostal,
+  libpostalWithData,
   setuptools,
   six,
   nose,
@@ -30,7 +30,7 @@ buildPythonPackage rec {
 
   # The C library we're wrapping
   buildInputs = [
-    libpostal
+    libpostalWithData
   ];
 
   # Runtime dependencies
@@ -42,8 +42,8 @@ buildPythonPackage rec {
   postPatch = ''
     # Replace hardcoded paths
     substituteInPlace setup.py \
-      --replace "/usr/local/include" "${libpostal}/include" \
-      --replace "/usr/local/lib" "${libpostal}/lib"
+      --replace "/usr/local/include" "${libpostalWithData}/include" \
+      --replace "/usr/local/lib" "${libpostalWithData}/lib"
 
     # Remove setup_requires entirely (it's on multiple lines)
     sed -i '/setup_requires=/,/\],/d' setup.py
@@ -60,7 +60,7 @@ buildPythonPackage rec {
 
   # The tests need the LIBPOSTAL_DATA_DIR to be set
   preCheck = ''
-    export LIBPOSTAL_DATA_DIR="${libpostal}/share/libpostal"
+    export LIBPOSTAL_DATA_DIR="${libpostalWithData}/share/libpostal"
   '';
 
   # Override checkPhase to run tests properly

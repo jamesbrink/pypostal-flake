@@ -1,0 +1,45 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash",
+      "Task",
+      "Glob",
+      "Grep",
+      "LS",
+      "Read",
+      "Edit",
+      "MultiEdit",
+      "Write",
+      "WebFetch",
+      "WebSearch"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path // empty' | grep '\\.py$' | xargs -r -I {} bash -c 'if [ -f \"{}\" ]; then output=$(mypy \"{}\" --ignore-missing-imports 2>&1 | grep \"error:\" | head -5); if [ -n \"$output\" ]; then echo \"Type errors found:\" >&2; echo \"$output\" >&2; exit 2; fi; fi; exit 0'"
+          },
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path // empty' | grep '\\.py$' | xargs -r -I {} bash -c 'export PATH=\"$HOME/.local/bin:/usr/local/bin:$PATH\"; which ruff >/dev/null 2>&1 && (ruff check --fix \"{}\" 2>/dev/null; ruff format \"{}\" 2>/dev/null) || true'"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -c \"import json,sys,subprocess; d=json.load(sys.stdin); f=d.get('tool_input',{}).get('file_path',''); sys.exit(0) if not f.endswith('.py') else sys.exit(2 if d.get('tool_name') in ['Write','Edit'] and subprocess.run(['grep','-r',f'from {f[:-3].replace('/','.').replace('..','')} import','--include=*.py','.'],capture_output=True).returncode==0 else 0)\""
+          }
+        ]
+      }
+    ]
+  }
+}
